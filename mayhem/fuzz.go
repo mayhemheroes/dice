@@ -39,6 +39,11 @@ func mayhemit(bytes []byte) int {
         core.Get(content)
         return 0
 
+    case 5:
+        var test core.Client
+        test.Read(bytes)
+        return 0
+
     default:
         content := string(bytes)
         core.Del(content)
