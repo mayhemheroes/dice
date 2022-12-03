@@ -16,6 +16,7 @@ var RESP_ZERO []byte = []byte(":0\r\n")
 var RESP_ONE []byte = []byte(":1\r\n")
 var RESP_MINUS_1 []byte = []byte(":-1\r\n")
 var RESP_MINUS_2 []byte = []byte(":-2\r\n")
+var RESP_EMPTY_ARRAY []byte = []byte("*0\r\n")
 
 var txnCommands map[string]bool
 
@@ -23,6 +24,9 @@ func init() {
 	txnCommands = map[string]bool{"EXEC": true, "DISCARD": true}
 }
 
+// evalPING returns with an encoded "PONG"
+// If any message is added with the ping command,
+// the message will be returned.
 func evalPING(args []string) []byte {
 	var b []byte
 
@@ -39,6 +43,14 @@ func evalPING(args []string) []byte {
 	return b
 }
 
+// evalSET puts a new <key, value> pair in db as in the args
+// args must contain key and value.
+// args can also contain multiple options -
+//	 	EX or ex which will set the expiry time(in secs) for the key
+// Returns encoded error response if at least a <key, value> pair is not part of args
+// Returns encoded error response if expiry tme value in not integer
+// Returns encoded OK RESP once new entry is added
+// If the key already exists then the value will be overwritten and expiry will be discarded
 func evalSET(args []string) []byte {
 	if len(args) <= 1 {
 		return Encode(errors.New("ERR wrong number of arguments for 'set' command"), false)
@@ -73,6 +85,10 @@ func evalSET(args []string) []byte {
 	return RESP_OK
 }
 
+// evalGET returns the value for the queried key in args
+// The key should be the only param in args
+// The RESP value of the key is encoded and then returned
+// evalGET returns RESP_NIL if key is expired or it does not exist
 func evalGET(args []string) []byte {
 	if len(args) != 1 {
 		return Encode(errors.New("ERR wrong number of arguments for 'get' command"), false)
@@ -97,6 +113,11 @@ func evalGET(args []string) []byte {
 	return Encode(obj.Value, false)
 }
 
+// evalTTL returns Time-to-Live in secs for the queried key in args
+// The key should be the only param in args else returns with an error
+// Returns	RESP encoded time (in secs) remaining for the key to expire
+//			RESP encoded -2 stating key doesn't exist or key is expired
+//			RESP encoded -1 in case no expiration is set on the key
 func evalTTL(args []string) []byte {
 	if len(args) != 1 {
 		return Encode(errors.New("ERR wrong number of arguments for 'ttl' command"), false)
@@ -129,6 +150,8 @@ func evalTTL(args []string) []byte {
 	return Encode(int64(durationMs/1000), false)
 }
 
+// evalDEL deletes all the specified keys in args list
+// returns the count of total deleted keys after encoding
 func evalDEL(args []string) []byte {
 	var countDeleted int = 0
 
@@ -141,6 +164,11 @@ func evalDEL(args []string) []byte {
 	return Encode(countDeleted, false)
 }
 
+// evalEXPIRE sets a expiry time(in secs) on the specified key in args
+// args should contain 2 values, key and the expiry time to be set for the key
+// The expiry time should be in integer format; if not, it returns encoded error response
+// Returns RESP_ONE if expiry was set on the key successfully.
+// Once the time is lapsed, the key will be deleted automatically
 func evalEXPIRE(args []string) []byte {
 	if len(args) <= 1 {
 		return Encode(errors.New("ERR wrong number of arguments for 'expire' command"), false)
@@ -186,6 +214,14 @@ func evalBGREWRITEAOF(args []string) []byte {
 	}
 }
 
+// evalINCR increments the value of the specified key in args by 1,
+// if the key exists and the value is integer format.
+// The key should be the only param in args.
+// If the key does not exist, new key is created with value 0,
+// the value of the new key is then incremented.
+// The value for the queried key should be of integer format,
+// if not evalINCR returns encoded error response.
+// evalINCR returns the incremented value for the key if there are no errors.
 func evalINCR(args []string) []byte {
 	if len(args) != 1 {
 		return Encode(errors.New("ERR wrong number of arguments for 'incr' command"), false)
@@ -213,6 +249,8 @@ func evalINCR(args []string) []byte {
 	return Encode(i, false)
 }
 
+// evalINFO creates a buffer with the info of total keys per db
+// Returns the encoded buffer as response
 func evalINFO(args []string) []byte {
 	var info []byte
 	buf := bytes.NewBuffer(info)
@@ -223,19 +261,27 @@ func evalINFO(args []string) []byte {
 	return Encode(buf.String(), false)
 }
 
+// TODO: Placeholder to support monitoring
 func evalCLIENT(args []string) []byte {
 	return RESP_OK
 }
 
+// TODO: Placeholder to support monitoring
 func evalLATENCY(args []string) []byte {
 	return Encode([]string{}, false)
 }
 
+// evalLRU deletes all the keys from the LRU
+// returns encoded RESP OK
 func evalLRU(args []string) []byte {
 	evictAllkeysLRU()
 	return RESP_OK
 }
 
+// evalSLEEP sets db to sleep for the specified number of seconds.
+// The sleep time should be the only param in args.
+// Returns error response if the time param in args is not of integer format.
+// evalSLEEP returns RESP_OK after sleeping for mentioned seconds
 func evalSLEEP(args []string) []byte {
 	if len(args) != 1 {
 		return Encode(errors.New("ERR wrong number of arguments for 'SLEEP' command"), false)
@@ -249,8 +295,267 @@ func evalSLEEP(args []string) []byte {
 	return RESP_OK
 }
 
+// evalMULTI marks the start of the transaction for the client.
+// All subsequent commands fired will be queued for atomic execution.
+// The commands will not be executed until EXEC is triggered.
+// Once EXEC is triggered it executes all the commands in queue,
+// and closes the MULTI transaction.
 func evalMULTI(args []string) []byte {
 	return RESP_OK
+}
+
+// evalQINTINS inserts the provided integer in the key identified by key
+// first argument will be the key, that should be of type `QINT`
+// second argument will be the integer value
+// if the key does not exist, evalQINTINS will also create the integer queue
+func evalQINTINS(args []string) []byte {
+	if len(args) != 2 {
+		return Encode(errors.New("ERR invalid number of arguments for `QINTINS` command"), false)
+	}
+
+	x, err := strconv.ParseInt(args[1], 10, 64)
+	if err != nil {
+		return Encode(errors.New("ERR only integer values can be inserted in QINT"), false)
+	}
+
+	obj := Get(args[0])
+	if obj == nil {
+		obj = NewObj(NewQueueInt(), -1, OBJ_TYPE_BYTELIST, OBJ_ENCODING_QINT)
+	}
+
+	if err := assertType(obj.TypeEncoding, OBJ_TYPE_BYTELIST); err != nil {
+		return Encode(err, false)
+	}
+
+	if err := assertEncoding(obj.TypeEncoding, OBJ_ENCODING_QINT); err != nil {
+		return Encode(err, false)
+	}
+
+	Put(args[0], obj)
+
+	q := obj.Value.(*QueueInt)
+	q.Insert(x)
+
+	return RESP_OK
+}
+
+// evalQINTREM removes the element from the QINT identified by key
+// first argument will be the key, that should be of type `QINT`
+// if the key does not exist, evalQINTREM returns nil otherwise it
+// returns the integer value popped from the queue
+// if we remove from the empty queue, nil is returned
+func evalQINTREM(args []string) []byte {
+	if len(args) != 1 {
+		return Encode(errors.New("ERR invalid number of arguments for `QINTREM` command"), false)
+	}
+
+	obj := Get(args[0])
+	if obj == nil {
+		return RESP_NIL
+	}
+
+	if err := assertType(obj.TypeEncoding, OBJ_TYPE_BYTELIST); err != nil {
+		return Encode(err, false)
+	}
+
+	if err := assertEncoding(obj.TypeEncoding, OBJ_ENCODING_QINT); err != nil {
+		return Encode(err, false)
+	}
+
+	q := obj.Value.(*QueueInt)
+	x, err := q.Remove()
+
+	if err == ErrQueueEmpty {
+		return RESP_NIL
+	}
+
+	return Encode(x, false)
+}
+
+// evalQINTLEN returns the length of the QINT identified by key
+// returns the integer value indicating the length of the queue
+// if the key does not exist, the response is 0
+func evalQINTLEN(args []string) []byte {
+	if len(args) != 1 {
+		return Encode(errors.New("ERR invalid number of arguments for `QINTLEN` command"), false)
+	}
+
+	obj := Get(args[0])
+	if obj == nil {
+		return RESP_ZERO
+	}
+
+	if err := assertType(obj.TypeEncoding, OBJ_TYPE_BYTELIST); err != nil {
+		return Encode(err, false)
+	}
+
+	if err := assertEncoding(obj.TypeEncoding, OBJ_ENCODING_QINT); err != nil {
+		return Encode(err, false)
+	}
+
+	q := obj.Value.(*QueueInt)
+	return Encode(q.Length, false)
+}
+
+// evalQINTPEEK peeks into the QINT and returns 5 elements without popping them
+// returns the array of integers as the response.
+// if the key does not exist, then we return an empty array
+func evalQINTPEEK(args []string) []byte {
+	var num int64 = 5
+	var err error
+
+	if len(args) > 2 {
+		return Encode(errors.New("ERR invalid number of arguments for `QINTPEEK` command"), false)
+	}
+
+	if len(args) == 2 {
+		num, err = strconv.ParseInt(args[1], 10, 32)
+		if err != nil || num <= 0 || num > 100 {
+			return Encode(errors.New("ERR number of elements to peek should be a positive number less than 100"), false)
+		}
+	}
+
+	obj := Get(args[0])
+	if obj == nil {
+		return RESP_EMPTY_ARRAY
+	}
+
+	if err := assertType(obj.TypeEncoding, OBJ_TYPE_BYTELIST); err != nil {
+		return Encode(err, false)
+	}
+
+	if err := assertEncoding(obj.TypeEncoding, OBJ_ENCODING_QINT); err != nil {
+		return Encode(err, false)
+	}
+
+	q := obj.Value.(*QueueInt)
+	return Encode(q.Iterate(int(num)), false)
+}
+
+// evalQREFINS inserts the reference of the provided key identified by key
+// first argument will be the key, that should be of type `QREF`
+// second argument will be the key that needs to be added to the queueref
+// if the queue does not exist, evalQREFINS will also create the queueref
+// returns 1 if the key reference was inserted
+// returns 0 otherwise
+func evalQREFINS(args []string) []byte {
+	if len(args) != 2 {
+		return Encode(errors.New("ERR invalid number of arguments for `QREFINS` command"), false)
+	}
+
+	obj := Get(args[0])
+	if obj == nil {
+		obj = NewObj(NewQueueRef(), -1, OBJ_TYPE_BYTELIST, OBJ_ENCODING_QREF)
+	}
+
+	if err := assertType(obj.TypeEncoding, OBJ_TYPE_BYTELIST); err != nil {
+		return Encode(err, false)
+	}
+
+	if err := assertEncoding(obj.TypeEncoding, OBJ_ENCODING_QREF); err != nil {
+		return Encode(err, false)
+	}
+
+	Put(args[0], obj)
+
+	q := obj.Value.(*QueueRef)
+	if q.Insert(args[1]) {
+		return Encode(1, false)
+	}
+	return Encode(0, false)
+}
+
+// evalQREFREM removes the element from the QREF identified by key
+// first argument will be the key, that should be of type `QREF`
+// if the key does not exist, evalQREFREM returns nil otherwise it
+// returns the RESP encoded value of the key reference from the queue
+// if we remove from the empty queue, nil is returned
+func evalQREFREM(args []string) []byte {
+	if len(args) != 1 {
+		return Encode(errors.New("ERR invalid number of arguments for `QREFREM` command"), false)
+	}
+
+	obj := Get(args[0])
+	if obj == nil {
+		return RESP_NIL
+	}
+
+	if err := assertType(obj.TypeEncoding, OBJ_TYPE_BYTELIST); err != nil {
+		return Encode(err, false)
+	}
+
+	if err := assertEncoding(obj.TypeEncoding, OBJ_ENCODING_QREF); err != nil {
+		return Encode(err, false)
+	}
+
+	q := obj.Value.(*QueueRef)
+	x, err := q.Remove()
+
+	if err == ErrQueueEmpty {
+		return RESP_NIL
+	}
+
+	return Encode(x, false)
+}
+
+// evalQREFLEN returns the length of the QREF identified by key
+// returns the integer value indicating the length of the queue
+// if the key does not exist, the response is 0
+func evalQREFLEN(args []string) []byte {
+	if len(args) != 1 {
+		return Encode(errors.New("ERR invalid number of arguments for `QREFLEN` command"), false)
+	}
+
+	obj := Get(args[0])
+	if obj == nil {
+		return RESP_ZERO
+	}
+
+	if err := assertType(obj.TypeEncoding, OBJ_TYPE_BYTELIST); err != nil {
+		return Encode(err, false)
+	}
+
+	if err := assertEncoding(obj.TypeEncoding, OBJ_ENCODING_QREF); err != nil {
+		return Encode(err, false)
+	}
+
+	q := obj.Value.(*QueueRef)
+	return Encode(q.qi.Length, false)
+}
+
+// evalQREFPEEK peeks into the QREF and returns 5 elements without popping them
+// returns the array of resp encoded values as the response.
+// if the key does not exist, then we return an empty array
+func evalQREFPEEK(args []string) []byte {
+	var num int64 = 5
+	var err error
+
+	if len(args) == 0 {
+		return Encode(errors.New("ERR invalid number of arguments for `QREFPEEK` command"), false)
+	}
+
+	if len(args) == 2 {
+		num, err = strconv.ParseInt(args[1], 10, 32)
+		if err != nil || num <= 0 || num > 100 {
+			return Encode(errors.New("ERR number of elements to peek should be a positive number less than 100"), false)
+		}
+	}
+
+	obj := Get(args[0])
+	if obj == nil {
+		return RESP_EMPTY_ARRAY
+	}
+
+	if err := assertType(obj.TypeEncoding, OBJ_TYPE_BYTELIST); err != nil {
+		return Encode(err, false)
+	}
+
+	if err := assertEncoding(obj.TypeEncoding, OBJ_ENCODING_QREF); err != nil {
+		return Encode(err, false)
+	}
+
+	q := obj.Value.(*QueueRef)
+	return Encode(q.Iterate(int(num)), false)
 }
 
 func executeCommand(cmd *RedisCmd, c *Client) []byte {
@@ -281,6 +586,22 @@ func executeCommand(cmd *RedisCmd, c *Client) []byte {
 		return evalLRU(cmd.Args)
 	case "SLEEP":
 		return evalSLEEP(cmd.Args)
+	case "QINTINS":
+		return evalQINTINS(cmd.Args)
+	case "QINTREM":
+		return evalQINTREM(cmd.Args)
+	case "QINTLEN":
+		return evalQINTLEN(cmd.Args)
+	case "QINTPEEK":
+		return evalQINTPEEK(cmd.Args)
+	case "QREFINS":
+		return evalQREFINS(cmd.Args)
+	case "QREFREM":
+		return evalQREFREM(cmd.Args)
+	case "QREFLEN":
+		return evalQREFLEN(cmd.Args)
+	case "QREFPEEK":
+		return evalQREFPEEK(cmd.Args)
 	case "MULTI":
 		c.TxnBegin()
 		return evalMULTI(cmd.Args)
@@ -294,6 +615,8 @@ func executeCommand(cmd *RedisCmd, c *Client) []byte {
 			return Encode(errors.New("ERR DISCARD without MULTI"), false)
 		}
 		c.TxnDiscard()
+		return RESP_OK
+	case "ABORT":
 		return RESP_OK
 	default:
 		return evalPING(cmd.Args)

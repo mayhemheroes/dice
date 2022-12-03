@@ -1,7 +1,9 @@
 package core_test
 
 import (
+	"bytes"
 	"fmt"
+	"math"
 	"testing"
 
 	"github.com/dicedb/dice/core"
@@ -12,7 +14,12 @@ func TestSimpleStringDecode(t *testing.T) {
 		"+OK\r\n": "OK",
 	}
 	for k, v := range cases {
-		value, _ := core.Decode([]byte(k))
+		p := core.NewRESPParser(bytes.NewBuffer([]byte(k)))
+		value, err := p.DecodeOne()
+		if err != nil {
+			t.Error(err)
+			t.Errorf("error while decoding: %v", k)
+		}
 		if v != value {
 			t.Fail()
 		}
@@ -24,7 +31,12 @@ func TestError(t *testing.T) {
 		"-Error message\r\n": "Error message",
 	}
 	for k, v := range cases {
-		value, _ := core.Decode([]byte(k))
+		p := core.NewRESPParser(bytes.NewBuffer([]byte(k)))
+		value, err := p.DecodeOne()
+		if err != nil {
+			t.Error(err)
+			t.Errorf("error while decoding: %v", k)
+		}
 		if v != value {
 			t.Fail()
 		}
@@ -37,7 +49,12 @@ func TestInt64(t *testing.T) {
 		":1000\r\n": 1000,
 	}
 	for k, v := range cases {
-		value, _ := core.Decode([]byte(k))
+		p := core.NewRESPParser(bytes.NewBuffer([]byte(k)))
+		value, err := p.DecodeOne()
+		if err != nil {
+			t.Error(err)
+			t.Errorf("error while decoding: %v", k)
+		}
 		if v != value {
 			t.Fail()
 		}
@@ -50,7 +67,12 @@ func TestBulkStringDecode(t *testing.T) {
 		"$0\r\n\r\n":      "",
 	}
 	for k, v := range cases {
-		value, _ := core.Decode([]byte(k))
+		p := core.NewRESPParser(bytes.NewBuffer([]byte(k)))
+		value, err := p.DecodeOne()
+		if err != nil {
+			t.Error(err)
+			t.Errorf("error while decoding: %v", k)
+		}
 		if v != value {
 			t.Fail()
 		}
@@ -66,7 +88,12 @@ func TestArrayDecode(t *testing.T) {
 		"*2\r\n*3\r\n:1\r\n:2\r\n:3\r\n*2\r\n+Hello\r\n-World\r\n": {[]int64{int64(1), int64(2), int64(3)}, []interface{}{"Hello", "World"}},
 	}
 	for k, v := range cases {
-		value, _ := core.Decode([]byte(k))
+		p := core.NewRESPParser(bytes.NewBuffer([]byte(k)))
+		value, err := p.DecodeOne()
+		if err != nil {
+			t.Error(err)
+			t.Errorf("error while decoding: %v", v)
+		}
 		array := value.([]interface{})
 		if len(array) != len(v) {
 			t.Fail()
@@ -75,6 +102,75 @@ func TestArrayDecode(t *testing.T) {
 			if fmt.Sprintf("%v", v[i]) != fmt.Sprintf("%v", array[i]) {
 				t.Fail()
 			}
+		}
+	}
+}
+
+func TestSimpleStrings(t *testing.T) {
+	var b []byte
+	var buf = bytes.NewBuffer(b)
+	for i := 0; i < 1024; i++ {
+		buf.WriteByte('a' + byte((i % 26)))
+		e := core.Encode(buf.String(), true)
+		p := core.NewRESPParser(bytes.NewBuffer(e))
+		nv, err := p.DecodeOne()
+		if err != nil {
+			t.Error(err)
+			t.Errorf("resp parser test failed for value: %v", buf.Bytes())
+		}
+		if nv != buf.String() {
+			t.Errorf("resp parser decoded value mismatch: %v", buf.String())
+		}
+	}
+}
+
+func TestBulkStrings(t *testing.T) {
+	var b []byte
+	var buf = bytes.NewBuffer(b)
+	for i := 0; i < 1024; i++ {
+		buf.WriteByte('a' + byte((i % 26)))
+		e := core.Encode(buf.String(), false)
+		p := core.NewRESPParser(bytes.NewBuffer(e))
+		nv, err := p.DecodeOne()
+		if err != nil {
+			t.Error(err)
+			t.Errorf("resp parser test failed for value: %v", buf.Bytes())
+		}
+		if nv != buf.String() {
+			t.Errorf("resp parser decoded value mismatch: %v", buf.String())
+		}
+	}
+}
+
+func TestInt(t *testing.T) {
+	for _, v := range []int64{math.MinInt8, math.MinInt16, math.MinInt32, math.MinInt64, 0, math.MaxInt8, math.MaxInt16, math.MaxInt32, math.MaxInt64} {
+		e := core.Encode(v, false)
+		p := core.NewRESPParser(bytes.NewBuffer(e))
+		nv, err := p.DecodeOne()
+		if err != nil {
+			t.Error(err)
+			t.Errorf("resp parser test failed for value: %v", v)
+		}
+		if nv != v {
+			t.Errorf("resp parser decoded value mismatch: %v", v)
+		}
+	}
+}
+
+func TestArrayInt(t *testing.T) {
+	var b []byte
+	var buf = bytes.NewBuffer(b)
+	for i := 0; i < 1024; i++ {
+		buf.WriteByte('a' + byte((i % 26)))
+		e := core.Encode(buf.String(), true)
+		p := core.NewRESPParser(bytes.NewBuffer(e))
+		nv, err := p.DecodeOne()
+		if err != nil {
+			t.Error(err)
+			t.Errorf("resp parser test failed for value: %v", buf.Bytes())
+		}
+		if nv != buf.String() {
+			t.Errorf("resp parser decoded value mismatch: %v", buf.String())
 		}
 	}
 }
