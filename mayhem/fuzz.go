@@ -31,15 +31,11 @@ func mayhemit(bytes []byte) int {
         return 0
 
     case 3:
-        core.Decode(bytes)
-        return 0
-
-    case 4:
         content := string(bytes)
         core.Get(content)
         return 0
 
-    case 5:
+    case 4:
         var test core.Client
         test.Read(bytes)
         return 0
