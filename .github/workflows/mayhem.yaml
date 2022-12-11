@@ -49,6 +49,8 @@ jobs:
       matrix:
         mayhemfile:
           - mayhem/Mayhemfile
+        testsuite:
+          - mayhem/testsuite
 
     steps:
       - uses: actions/checkout@v2
