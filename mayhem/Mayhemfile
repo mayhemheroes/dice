@@ -5,7 +5,7 @@ project: dice
 target: core
 
 testsuite:
-    - file://./testsuite
+    - file:///testsuite
 
 # List of commands used to test the target
 cmds:
