@@ -1,7 +1,9 @@
 package fuzz
 
 import "strconv"
+import "unsafe"
 import "github.com/dicedb/dice/core"
+import "github.com/dicedb/dice/core/dencoding"
 
 func mayhemit(bytes []byte) int {
 
@@ -21,17 +23,27 @@ func mayhemit(bytes []byte) int {
 
     case 1:
         content := string(bytes)
-        var value uint32 = uint32(num)
+        var pointer = unsafe.Pointer(&content)
+        var value = uint32(num)
         var test core.EvictionPool
-        test.Push(content, value)
+        test.Push(pointer, value)
         return 0
 
     case 2:
+        var n = uint64(num)
+        dencoding.EncodeUInt(n)
+        return 0
+
+    case 3:
+        dencoding.DecodeUInt(bytes)
+        return 0
+
+    case 4:
         content := string(bytes)
         core.Get(content)
         return 0
 
-    case 3:
+    case 5:
         var test core.Client
         test.Read(bytes)
         return 0
