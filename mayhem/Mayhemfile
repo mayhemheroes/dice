@@ -4,6 +4,9 @@ project: dice
 # Target name (should be unique within the project)
 target: core
 
+testsuite:
+    - file://testsuite
+
 # List of commands used to test the target
 cmds:
 
