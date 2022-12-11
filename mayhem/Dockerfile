@@ -12,3 +12,4 @@ RUN go-fuzz-build -libfuzzer -o fuzz.a && \
 
 FROM debian:bookworm-slim
 COPY --from=builder /dice/mayhem/fuzz.libfuzzer /
+COPY --from=builder /dice/mayhem/testsuite /
