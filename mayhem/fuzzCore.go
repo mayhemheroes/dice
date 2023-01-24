@@ -1,4 +1,4 @@
-package fuzz
+package fuzzCore
 
 import "strconv"
 // import "unsafe"
@@ -21,6 +21,10 @@ func mayhemit(bytes []byte) int {
         test.Write(bytes)
         return 0
 
+    // this test case seemes to cause a mayhem error
+    // where the run hangs on 5 tests with 1 defect for the whole time
+    // without it the works fine getting plenty of test cases
+    
     // case 1:
     //     content := string(bytes)
     //     var pointer = unsafe.Pointer(&content)
